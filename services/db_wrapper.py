@@ -1,3 +1,4 @@
+# services/db_wrapper.py
 import aiosqlite
 import asyncio
 from typing import Optional, List, Dict, Any
@@ -113,6 +114,20 @@ class Database:
                     content,
                     message_id UNINDEXED
                 );
+
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id TEXT PRIMARY KEY,
+                    user_id INTEGER,
+                    title TEXT,
+                    body TEXT,
+                    payload TEXT,      -- JSON stored as TEXT
+                    type TEXT,
+                    created_at TEXT,
+                    due_at TEXT,
+                    read INTEGER DEFAULT 0,
+                    delivered INTEGER DEFAULT 0,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
                 """
             )
             await self._conn.execute(
@@ -123,6 +138,12 @@ class Database:
             )
             await self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_projects_user_last ON projects(user_id, last_activity);"
+            )
+            await self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, read);"
+            )
+            await self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_notifications_user_due ON notifications(user_id, due_at);"
             )
             await self._conn.commit()
 
@@ -160,6 +181,73 @@ class Database:
             last_name=tg_user.get("last_name"),
             language_code=tg_user.get("language_code"),
         )
+    
+    async def _row_to_dict_sqlite(self, row):
+        if row is None:
+            return None
+        d = dict(row)
+        # sqlite stores strings for datetimes/uuids, оставляем как есть
+        return d
+
+    async def get_project_tree(self, project_id: str, conv_limit: int = 20, conv_message_limit: int = 20) -> Optional[Dict[str, Any]]:
+        assert self._conn is not None
+        cur = await self._conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,))
+        prow = await cur.fetchone()
+        if not prow:
+            return None
+        project = await self._row_to_dict_sqlite(prow)
+        # conversations
+        cur = await self._conn.execute("SELECT * FROM conversations WHERE project_id = ? ORDER BY last_activity DESC LIMIT ?", (project_id, conv_limit))
+        convs = await cur.fetchall()
+        project['conversations'] = []
+        for c in convs:
+            cdict = await self._row_to_dict_sqlite(c)
+            curm = await self._conn.execute("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?", (cdict['id'], conv_message_limit))
+            msgs = await curm.fetchall()
+            cdict['messages'] = list(reversed([await self._row_to_dict_sqlite(m) for m in msgs]))
+            project['conversations'].append(cdict)
+        return project
+
+    async def get_user_tree(self,
+                            user_id: int,
+                            project_limit: int = 50,
+                            conv_limit: int = 20,
+                            conv_message_limit: int = 20,
+                            notif_limit: int = 50,
+                            include_notifications: bool = True) -> Optional[Dict[str, Any]]:
+        assert self._conn is not None
+        cur = await self._conn.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        urow = await cur.fetchone()
+        if not urow:
+            return None
+        user = await self._row_to_dict_sqlite(urow)
+
+        # notifications
+        if include_notifications:
+            curn = await self._conn.execute("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?", (user_id, notif_limit))
+            notifs = await curn.fetchall()
+            user['notifications'] = [await self._row_to_dict_sqlite(n) for n in notifs]
+        else:
+            user['notifications'] = []
+
+        # projects
+        curp = await self._conn.execute("SELECT * FROM projects WHERE user_id = ? ORDER BY last_activity DESC LIMIT ?", (user_id, project_limit))
+        projects = await curp.fetchall()
+        user['projects'] = []
+        for p in projects:
+            p_dict = await self._row_to_dict_sqlite(p)
+            curc = await self._conn.execute("SELECT * FROM conversations WHERE project_id = ? ORDER BY last_activity DESC LIMIT ?", (p_dict['id'], conv_limit))
+            convs = await curc.fetchall()
+            p_dict['conversations'] = []
+            for c in convs:
+                c_dict = await self._row_to_dict_sqlite(c)
+                curm = await self._conn.execute("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?", (c_dict['id'], conv_message_limit))
+                msgs = await curm.fetchall()
+                c_dict['messages'] = list(reversed([await self._row_to_dict_sqlite(m) for m in msgs]))
+                p_dict['conversations'].append(c_dict)
+            user['projects'].append(p_dict)
+
+        return user
 
     # ---------------------
     # Projects
@@ -297,6 +385,32 @@ class Database:
             selected.append({"role": m["role"], "content": m["content"], "meta": json.loads(m["meta"] or "{}")})
             total += tokens
         return selected
+    # ---------------------
+    # Notifications
+    # ---------------------
+    async def create_notification(self, user_id: int, title: str, body: str,
+                              payload: Optional[Dict[str, Any]] = None,
+                              due_at: Optional[str] = None, ntype: Optional[str] = None) -> str:
+        assert self._conn is not None
+        nid = str(uuid.uuid4())
+        now = now_iso()
+        payload_text = json.dumps(payload or {})
+        async with self._lock:
+            await self._conn.execute(
+                "INSERT INTO notifications (id, user_id, title, body, payload, type, created_at, due_at, read, delivered) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (nid, user_id, title, body, payload_text, ntype, now, due_at, 0, 0)
+            )
+            await self._conn.commit()
+        return nid
+
+    async def list_notifications(self, user_id: int, unread_only: bool = False, limit: int = 50):
+        assert self._conn is not None
+        if unread_only:
+            cur = await self._conn.execute("SELECT * FROM notifications WHERE user_id = ? AND read = 0 ORDER BY created_at DESC LIMIT ?", (user_id, limit))
+        else:
+            cur = await self._conn.execute("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?", (user_id, limit))
+        return await cur.fetchall()
+
 
     # ---------------------
     # Usage & logs

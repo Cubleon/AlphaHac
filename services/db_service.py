@@ -94,10 +94,26 @@ class PostgresDatabase:
                     created_at TIMESTAMP WITH TIME ZONE
                 );
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id UUID PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    title TEXT,
+                    body TEXT,
+                    payload JSONB,
+                    type TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE,
+                    due_at TIMESTAMP WITH TIME ZONE,
+                    read BOOLEAN DEFAULT FALSE,
+                    delivered BOOLEAN DEFAULT FALSE
+                );
+            """)
             # индексы
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_conv_created ON messages(conversation_id, created_at);")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_user_last ON conversations(user_id, last_activity);")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_projects_user_last ON projects(user_id, last_activity);")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, read);")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user_due ON notifications(user_id, due_at);")
 
     async def close(self):
         if self._pool:
@@ -138,6 +154,84 @@ class PostgresDatabase:
             last_name=tg_user.get("last_name"),
             language_code=tg_user.get("language_code")
         )
+
+    def _row_to_dict(row):
+    """Преобразует asyncpg.Record -> dict, конвертирует UUID/datetime в строки."""
+        if row is None:
+            return None
+        d = dict(row)
+        # asyncpg returns UUID and datetime natively -> stringify them
+        for k, v in list(d.items()):
+            if isinstance(v, (uuid.UUID,)):
+                d[k] = str(v)
+            elif isinstance(v, (datetime,)):
+                d[k] = v.isoformat()
+        return d
+
+    async def get_project_tree(self, project_id: str, conv_limit: int = 20, conv_message_limit: int = 20) -> Optional[Dict[str, Any]]:
+        """
+        Возвращает проект со списком бесед (ограничено conv_limit) и с сообщениями (ограничено conv_message_limit) для каждой беседы.
+        """
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            proj_row = await conn.fetchrow("SELECT * FROM projects WHERE id = $1", uuid.UUID(project_id))
+            if not proj_row:
+                return None
+            project = _row_to_dict(proj_row)
+            # conversations
+            convs = await conn.fetch("SELECT * FROM conversations WHERE project_id = $1 ORDER BY last_activity DESC LIMIT $2", uuid.UUID(project_id), conv_limit)
+            project['conversations'] = []
+            for c in convs:
+                cdict = _row_to_dict(c)
+                # messages (latest conv_message_limit)
+                msgs = await conn.fetch("SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT $2", uuid.UUID(cdict['id']), conv_message_limit)
+                # return chronological order
+                msgs = list(reversed([_row_to_dict(m) for m in msgs]))
+                cdict['messages'] = msgs
+                project['conversations'].append(cdict)
+            return project
+
+    async def get_user_tree(self,
+                            user_id: int,
+                            project_limit: int = 50,
+                            conv_limit: int = 20,
+                            conv_message_limit: int = 20,
+                            notif_limit: int = 50,
+                            include_notifications: bool = True) -> Optional[Dict[str, Any]]:
+        """
+        Собирает вложенную структуру: user -> notifications -> projects -> conversations -> messages.
+        Возвращает dict или None, если пользователь не найден.
+        """
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            user_row = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
+            if not user_row:
+                return None
+            user = _row_to_dict(user_row)
+
+            # notifications (опционально)
+            if include_notifications:
+                notifs = await conn.fetch("SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2", user_id, notif_limit)
+                user['notifications'] = [_row_to_dict(n) for n in notifs]
+            else:
+                user['notifications'] = []
+
+            # projects
+            projects = await conn.fetch("SELECT * FROM projects WHERE user_id = $1 ORDER BY last_activity DESC LIMIT $2", user_id, project_limit)
+            user['projects'] = []
+            for p in projects:
+                p_dict = _row_to_dict(p)
+                # conversations in project
+                convs = await conn.fetch("SELECT * FROM conversations WHERE project_id = $1 ORDER BY last_activity DESC LIMIT $2", uuid.UUID(p_dict['id']), conv_limit)
+                p_dict['conversations'] = []
+                for c in convs:
+                    c_dict = _row_to_dict(c)
+                    msgs = await conn.fetch("SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT $2", uuid.UUID(c_dict['id']), conv_message_limit)
+                    c_dict['messages'] = list(reversed([_row_to_dict(m) for m in msgs]))
+                    p_dict['conversations'].append(c_dict)
+                user['projects'].append(p_dict)
+
+            return user
 
     # ---------------- projects ----------------
     async def create_project(self, user_id: int, name: str, description: Optional[str] = None) -> str:
@@ -258,6 +352,60 @@ class PostgresDatabase:
             selected.append({"role": m['role'], "content": m['content'], "meta": meta})
             total += tokens
         return selected
+
+    # ---------------- notifications ----------------
+    async def create_notification(self, user_id: int, title: str, body: str,
+                              payload: Optional[Dict[str, Any]] = None,
+                              due_at: Optional[datetime] = None,
+                              ntype: Optional[str] = None) -> str:
+        assert self._pool is not None
+        nid = uuid.uuid4()
+        now = _now()
+        async with self._pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO notifications (id, user_id, title, body, payload, type, created_at, due_at, read, delivered)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false,false)
+            """, nid, user_id, title, body, json.dumps(payload or {}), ntype, now, due_at)
+        return str(nid)
+
+    async def list_notifications(self, user_id: int, unread_only: bool = False, limit: int = 50) -> List[asyncpg.Record]:
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            if unread_only:
+                return await conn.fetch("SELECT * FROM notifications WHERE user_id = $1 AND read = false ORDER BY created_at DESC LIMIT $2", user_id, limit)
+            return await conn.fetch("SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2", user_id, limit)
+
+    async def get_notification(self, notification_id: str) -> Optional[asyncpg.Record]:
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            return await conn.fetchrow("SELECT * FROM notifications WHERE id = $1", uuid.UUID(notification_id))
+
+    async def mark_notification_read(self, notification_id: str):
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            await conn.execute("UPDATE notifications SET read = true WHERE id = $1", uuid.UUID(notification_id))
+
+    async def mark_all_read(self, user_id: int):
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            await conn.execute("UPDATE notifications SET read = true WHERE user_id = $1", user_id)
+
+    async def get_unread_count(self, user_id: int) -> int:
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT count(*) AS cnt FROM notifications WHERE user_id = $1 AND read = false", user_id)
+            return int(row['cnt'])
+
+    # util for scheduler: fetch due notifications up to `until`
+    async def fetch_due_notifications(self, until: datetime, limit: int = 100) -> List[asyncpg.Record]:
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            return await conn.fetch("SELECT * FROM notifications WHERE due_at IS NOT NULL AND delivered = false AND due_at <= $1 ORDER BY due_at ASC LIMIT $2", until, limit)
+
+    async def mark_delivered(self, notification_id: str):
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            await conn.execute("UPDATE notifications SET delivered = true WHERE id = $1", uuid.UUID(notification_id))
 
     # ---------------- usage & logs ----------------
     async def increment_usage(self, user_id: int, tokens: int = 0, reqs: int = 1):

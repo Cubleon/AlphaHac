@@ -1,3 +1,4 @@
+# handlers/__init__.py
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from services.db_service import db
 from handlers import commands, messages
