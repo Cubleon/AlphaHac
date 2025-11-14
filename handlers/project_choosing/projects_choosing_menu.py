@@ -1,5 +1,6 @@
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+import handlers.project.project_menu as project_section
 
 # меню выбора проекта
 async def projects_choosing_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -19,7 +20,7 @@ async def project_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if project_name in context.user_data.get("projects", []):
         await update.message.reply_text(f"Выбран проект: {project_name}")
         context.user_data["current_project"] = project_name
-        # Здесь можно показать меню действий для проекта
+        await project_section.main_menu(update, context)
     else:
         await update.message.reply_text("Проект не найден.")
 

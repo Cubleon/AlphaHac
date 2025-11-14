@@ -12,4 +12,5 @@ async def project_choosing_handler(update: Update, context: CallbackContext):
         await projects_choosing_menu(update, context)
     elif message == "Создать новый проект":
         await create_project(update, context)
-
+    else:
+        await project_chosen(update, context)
