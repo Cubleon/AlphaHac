@@ -1,21 +1,20 @@
 from telegram import Update
 from telegram.ext import CallbackContext
-
 from handlers.GPT_processing.GPT_processing_handler import GPT_processing_handler
-from handlers.main_section.main_section_handler import main_section_handler
-from handlers.project_choosing.project_choosing_handler import project_choosing_handler
-from handlers.project.project_handler import project_handler
+from handlers.main_section.main_section import main_section_handler
+from handlers.project_choosing.projects_choosing import project_choosing_handler
+from handlers.project.project_menu import project_handler
+
+section_handlers = {
+    "main_section": main_section_handler,
+    "project_section": project_handler,
+    "projects_choosing_section": project_choosing_handler,
+    "GPT_processing_section": GPT_processing_handler
+}
 
 async def handler(update: Update, context: CallbackContext):
     section = context.user_data.get("section")
-    message = context.user_data.get("message")
-    if message == "В начало":
-        await main_section_handler(update, context)
-    elif section == "main_section":
-        await main_section_handler(update, context)
-    elif section == "project_section":
-        await project_handler(update, context)
-    elif section == "projects_choosing_section":
-        await project_choosing_handler(update, context)
-    elif section == "GPT_processing_section":
-        await GPT_processing_handler(update, context)
+    if section_handlers.get(section):
+        await section_handlers[section](update, context)
+    else:
+        await update.message.reply_text("Проект не найден.")
