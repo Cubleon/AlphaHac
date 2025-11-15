@@ -10,9 +10,13 @@ handlers = {
     "Мои проекты": manage_projects_menu,
     "Создать новый проект": create_project,
     "Удалить проект": delete_project,
-    "Общий чат": llm_menu,
     "Назад": back,
     "О боте": help,
+    "Задать вопрос": llm_menu,
+    "Резюмировать": llm_menu,
+    "Письмо": llm_menu,
+    "Таблица": llm_menu,
+    "Документ": llm_menu
 }
 
 def main():
