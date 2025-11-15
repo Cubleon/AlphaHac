@@ -19,15 +19,21 @@ class LMStudioClient:
       - respond_image_to_text: send an image + prompt (returns final full response)
     """
 
-    def __init__(self, model_id: str = "qwen/qwen3-vl-8b", system_prompt: Optional[str] = None):
+    def __init__(self, chat_history: lms.Chat.from_history, model_id: str = "qwen/qwen3-vl-8b", system_prompt: str = None):
         # lazy create model handle on first use
         self.model_id = model_id
         self._model = lms.llm(model_id)
-        self._chat = lms.Chat("You are a helpful assistant.")
+        if chat_history:
+            self._chat = chat_history
+        else:
+            self._chat = lms.Chat()
         self.default_config = {
             "temperature": 0.0,
-            "maxTokens": 1024
+            "maxTokens": 128
         }
+
+    def get_chat(self):
+        return self._chat
 
     def respond_text_to_text(self, prompt: str,
                              config: Optional[Dict[str, Any]] = None) -> str:
@@ -141,6 +147,3 @@ class LMStudioClient:
         result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append).content
 
         return result
-
-
-client = LMStudioClient()
