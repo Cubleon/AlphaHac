@@ -1,7 +1,7 @@
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, ContextTypes,  filters
+from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, ContextTypes, filters
 
-from callbacks.menus import manage_projects_menu, project_menu
+from tgbot.callbacks.menus import manage_projects_menu, project_menu
 
 
 async def choose_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -20,6 +20,7 @@ async def create_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["state"] = "creating_project"
 
+
 async def name_project_to_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text.strip()
     projects = context.user_data.setdefault("projects", [])
@@ -30,6 +31,8 @@ async def name_project_to_create(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(f"Проект '{name}' создан!")
 
     await manage_projects_menu(update, context)
+
+
 async def delete_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
     projects = context.user_data.get("projects", [])
     if not projects:
@@ -41,6 +44,7 @@ async def delete_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["state"] = "deleting_project"
 
+
 async def name_project_to_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text.strip()
     projects = context.user_data.setdefault("projects", [])
@@ -51,6 +55,3 @@ async def name_project_to_delete(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(f"Проект '{name}' удалён!")
 
     await manage_projects_menu(update, context)
-
-
-

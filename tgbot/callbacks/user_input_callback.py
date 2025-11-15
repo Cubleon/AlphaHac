@@ -1,8 +1,8 @@
 from telegram import Update
 from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, ContextTypes,  filters
-
-from callbacks.project_callbacks import name_project_to_create, name_project_to_delete, choose_project
-from callbacks.llm_callbacks import llm_answer
+from tgbot.callbacks.project_callbacks import name_project_to_create, name_project_to_delete, choose_project
+from tgbot.callbacks.notifications_callbacks import *
+from tgbot.callbacks.llm_callbacks import llm_answer
 
 actions = {
     "manage_projects_menu": {
@@ -12,6 +12,12 @@ actions = {
     },
     "llm_menu": {
         "asking_llm": llm_answer
+    },
+    "notifications_menu": {
+        "waiting_name": ask_notification_time,
+        "waiting_time": ask_notification_text,
+        "waiting_text": save_notification,
+        "notification_to_delete": delete_notification
     }
 }
 
