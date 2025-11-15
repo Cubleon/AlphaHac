@@ -6,11 +6,13 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Moscow")
 
+
 # Шаг 1: задаём имя уведомления
 async def ask_notification_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Введите имя уведомления:")
     context.user_data["state"] = "waiting_name"
     context.user_data["menu"] = "notifications_menu"
+
 
 # Шаг 2: задаём время
 async def ask_notification_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -19,6 +21,7 @@ async def ask_notification_time(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text("Введите время уведомления в формате чч:мм:")
     context.user_data["state"] = "waiting_time"
     context.user_data["menu"] = "notifications_menu"
+
 
 # Шаг 3: задаём текст уведомления и создаём задачу
 async def ask_notification_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -32,6 +35,7 @@ async def ask_notification_text(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text("Введите текст уведомления:")
     context.user_data["state"] = "waiting_text"
     context.user_data["menu"] = "notifications_menu"
+
 
 async def save_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Берём данные из user_data
@@ -71,6 +75,7 @@ async def save_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await notifications_menu(update, context)
 
+
 # Шаг 3: задаём текст уведомления и создаём задачу
 async def show_notifications_to_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     notifications_list = []
@@ -84,9 +89,10 @@ async def show_notifications_to_delete(update: Update, context: ContextTypes.DEF
         text = "Выберите уведомление для удаления"
         keyboard = [notifications_list] + [["Назад"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text(text, reply_markup = reply_markup)
+        await update.message.reply_text(text, reply_markup=reply_markup)
     else:
         await notifications_menu(update, context)
+
 
 async def delete_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name, time = update.message.text.split(": ", 1)
@@ -102,6 +108,7 @@ async def delete_notification(update: Update, context: ContextTypes.DEFAULT_TYPE
         text = "Уведомление не найдено"
         await update.message.reply_text(text)
         await notifications_menu(update, context)
+
 
 async def send_notification(context: ContextTypes.DEFAULT_TYPE):
     chat_id = context.job.chat_id

@@ -75,6 +75,11 @@ async def project_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def notifications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    menus = context.user_data.get("menus", [])
+    if (menus and menus[-1] != "notifications_menu") or not menus:
+        menus.append("notifications_menu")
+    context.user_data["menus"] = menus
+
     keyboard = [["Добавить уведомление", "Удалить уведомление", "Назад"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
