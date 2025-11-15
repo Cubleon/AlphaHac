@@ -80,20 +80,10 @@ async def notifications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         menus.append("notifications_menu")
     context.user_data["menus"] = menus
 
-    keyboard = [["Добавить уведомление", "Удалить уведомление", "Назад"]]
+    keyboard = [["Добавить уведомление", "Удалить уведомление", "Показать все уведомления", "Назад"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-    notifications_list = []
-    for notif in context.user_data.get("notifications", []):
-        # notif.name и notif.next_t (datetime) → строка вида "Будильник: 2025-11-15 09:00"
-        notifications_list.append(f"{notif.name}: {notif.next_t.strftime('%Y-%m-%d %H:%M')}")
-
-    if notifications_list:
-        text = "Мои уведомления:\n" + "\n".join(notifications_list)
-    else:
-        text = "У вас пока нет уведомлений."
-
-    await update.message.reply_text(text, reply_markup=reply_markup)
+    await update.message.reply_text("Выбери действие", reply_markup=reply_markup)
 
     context.user_data["menu"] = "notifications_menu"
     context.user_data["state"] = "default"

@@ -7,6 +7,19 @@ from zoneinfo import ZoneInfo
 TZ = ZoneInfo("Europe/Moscow")
 
 
+async def show_all_notifications(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    notifications_list = []
+    for notif in context.user_data.get("notifications", []):
+        # notif.name и notif.next_t (datetime) → строка вида "Будильник: 2025-11-15 09:00"
+        notifications_list.append(f"{notif.name}: {notif.next_t.strftime('%Y-%m-%d %H:%M')}")
+
+    if notifications_list:
+        text = "Мои уведомления:\n" + "\n".join(notifications_list)
+    else:
+        text = "У вас пока нет уведомлений."
+
+    await update.message.reply_text(text)
+
 # Шаг 1: задаём имя уведомления
 async def ask_notification_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Введите имя уведомления:")
@@ -25,12 +38,7 @@ async def ask_notification_time(update: Update, context: ContextTypes.DEFAULT_TY
 
 # Шаг 3: задаём текст уведомления и создаём задачу
 async def ask_notification_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        h, m = map(int, update.message.text.split(":"))
-    except:
-        await update.message.reply_text("Неверный формат времени. Попробуйте снова.")
-        return
-
+    h, m = map(int, update.message.text.split(":"))
     context.user_data["notification_time"] = (h, m)
     await update.message.reply_text("Введите текст уведомления:")
     context.user_data["state"] = "waiting_text"
