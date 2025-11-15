@@ -1,7 +1,7 @@
 from telegram import Update
-from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, ContextTypes, filters
-
+from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, ContextTypes,  filters
 from tgbot.callbacks.project_callbacks import name_project_to_create, name_project_to_delete, choose_project
+from tgbot.callbacks.notifications_callbacks import *
 from tgbot.callbacks.llm_callbacks import llm_answer
 
 actions = {
@@ -12,12 +12,18 @@ actions = {
     },
     "llm_menu": {
         "asking_llm": llm_answer
+    },
+    "notifications_menu": {
+        "waiting_name": ask_notification_time,
+        "waiting_time": ask_notification_text,
+        "waiting_text": save_notification,
+        "notification_to_delete": delete_notification
     }
 }
-
 
 async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await actions[context.user_data["menu"]][context.user_data["state"]](update, context)
     except:
         await update.message.reply_text("Неверный ввод")
+
