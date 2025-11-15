@@ -1,91 +1,146 @@
+import os
 from typing import Iterator, Optional, List, Dict, Any
 import lmstudio as lms
-import threading
-import time
+from markdown_pdf import MarkdownPdf, Section
+import io
 
-class LMStudioQwenClient:
+import fitz
+
+from PIL import Image
+
+import pandas as pd
+
+class LMStudioClient:
     """
     Simple wrapper for LM Studio Qwen3-VL-8B (or other models).
     Methods:
-      - respond_text: synchronous full response (string)
-      - respond_stream: generator that yields incremental text fragments
-      - respond_with_image: send an image + prompt (returns final full response)
+      - respond_text_to_text: synchronous full response (string)
+      - respond_text_to_stream: generator that yields incremental text fragments
+      - respond_image_to_text: send an image + prompt (returns final full response)
     """
 
     def __init__(self, model_id: str = "qwen/qwen3-vl-8b", system_prompt: Optional[str] = None):
         # lazy create model handle on first use
         self.model_id = model_id
         self._model = lms.llm(model_id)
-        self._system_prompt = system_prompt or "You are a helpful assistant."
-        # optional default config
+        self._chat = lms.Chat("You are a helpful assistant.")
         self.default_config = {
             "temperature": 0.0,
-            "maxTokens": 1024,
+            "maxTokens": 1024
         }
 
-    def _build_chat(self, user_text: str, chat_history: Optional[List[Dict[str, str]]] = None) -> lms.Chat:
-        """
-        Build a Chat instance. chat_history is a list of messages in OpenAI style:
-          [{"role":"user","content":"..."},
-           {"role":"assistant","content":"..."}]
-        """
-        chat = lms.Chat(self._system_prompt)
-        if chat_history:
-            for msg in chat_history:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                if role == "user":
-                    chat.add_user_message(content)
-                elif role == "assistant":
-                    chat.add_assistant_response(content)
-                else:
-                    # fallback: append as user message
-                    chat.add_user_message(content)
-        chat.add_user_message(user_text)
-        return chat
-
-    def respond_text(self, prompt: str, chat_history: Optional[List[Dict[str, str]]] = None,
-                     config: Optional[Dict[str, Any]] = None) -> str:
+    def respond_text_to_text(self, prompt: str,
+                             config: Optional[Dict[str, Any]] = None) -> str:
         """
         Synchronous non-streaming full response.
         Returns assistant text.
         """
-        chat = self._build_chat(prompt, chat_history)
+        self._chat.add_user_message(prompt)
         cfg = dict(self.default_config)
         if config:
             cfg.update(config)
-        result = self._model.respond(chat, config=cfg)
-        # result typically has a .content or str(result) returns content
+        result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append)
         return result.content
 
-    def respond_stream(self, prompt: str, chat_history: Optional[List[Dict[str, str]]] = None,
-                       config: Optional[Dict[str, Any]] = None) -> Iterator[str]:
+    def respond_text_to_stream(self, prompt: str,
+                               config: Optional[Dict[str, Any]] = None) -> Iterator[str]:
         """
         Streaming generator. Yield string fragments as they arrive.
         Use like:
-            for chunk in client.respond_stream("Hello"):
+            for chunk in client.respond_text_to_stream("Hello"):
                 send_edit_to_telegram(chunk)
         """
-        chat = self._build_chat(prompt, chat_history)
+        self._chat.add_user_message(prompt)
         cfg = dict(self.default_config)
         if config:
             cfg.update(config)
-        # model.respond_stream yields fragments (objects). Each fragment typically has .content
-        stream = self._model.respond_stream(chat, config=cfg)
+        # model.respond_text_to_stream yields fragments (objects). Each fragment typically has .content
+        stream = self._model.respond_stream(self._chat, config=cfg, on_message=self._chat.append)
         for frag in stream:
             yield frag.content
-    def respond_with_image(self, prompt: str, path_to_image: str,
-                           chat_history: Optional[List[Dict[str, str]]] = None,
-                           config: Optional[Dict[str, Any]] = None) -> str:
+
+    def respond_image_to_text(self, prompt: str, path_to_image: str,
+                              config: Optional[Dict[str, Any]] = None) -> str:
         """
         Send an image + text prompt. Returns assistant text (non-streaming).
         """
-        chat = self._build_chat("", chat_history)  # start with system + history
-        # now add user message with image
         image_handle = lms.prepare_image(path_to_image)
-        chat.add_user_message(prompt, images=[image_handle])
+
+        self._chat.add_user_message(prompt, images=[image_handle])
         cfg = dict(self.default_config)
         if config:
             cfg.update(config)
-        result = self._model.respond(chat, config=cfg)
+        result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append)
         return result.content
+
+    def respond_text_to_pdf(self, prompt: str,
+                            config: Optional[Dict[str, Any]] = None) -> io.BytesIO:
+
+        self._chat.add_user_message(prompt)
+        cfg = dict(self.default_config)
+
+        if config:
+            cfg.update(config)
+        result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append).content
+
+        title = prompt if len(prompt) <= 80 else prompt[:77] + "..."
+        result = f"# {title}\n\n" + result
+
+        pdf = MarkdownPdf(toc_level=2)
+        pdf.add_section(Section(result))
+        pdf.save("output.pdf")
+        out_bytes = io.BytesIO()
+        pdf.save_bytes(out_bytes)
+
+        out_bytes.seek(0)
+        return out_bytes
+
+    def respond_text_to_table(self, prompt: str,
+                              config: Optional[Dict[str, Any]] = None) -> io.BytesIO:
+        self._chat.add_user_message(prompt)
+        cfg = dict(self.default_config)
+        if config:
+            cfg.update(config)
+        result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append).content
+
+        lines = [ln.rstrip() for ln in result.splitlines() if '|' in ln]
+        table_text = "\n".join(lines)
+        cleaned = "\n".join(line.strip().strip('|') for line in lines)
+
+        df = pd.read_csv(io.StringIO(cleaned), sep=r'\s*\|\s*', engine='python')
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name="Table1")
+
+        buf.seek(0)  # rewind so the caller can read from the start
+        return buf
+
+    def respond_pdf_to_text(self, prompt: str, path_to_pdf: str, config: Optional[Dict[str, Any]] = None) -> str:
+        doc = fitz.open(path_to_pdf)
+        zoom = 0.5
+        mat = fitz.Matrix(zoom, zoom)
+
+        image_handles = []
+
+        for i in range(doc.page_count):
+            page = doc[i]
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            img_bytes = pix.tobytes("png")
+            img = Image.open(io.BytesIO(img_bytes))
+            img.save(f"page_{i + 1}.png")
+            image_handles.append(lms.prepare_image(f"page_{i + 1}.png"))
+            os.remove(f"page_{i + 1}.png")
+
+        self._chat.add_user_message(prompt, images=image_handles)
+
+        cfg = dict(self.default_config)
+        if config:
+            cfg.update(config)
+
+        result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append).content
+
+        return result
+
+
+client = LMStudioClient()
