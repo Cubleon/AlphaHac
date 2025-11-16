@@ -8,8 +8,9 @@ answers = {
     "Анализировать таблицу": "Пришли файл в формате xlsx для анализа",
     "Анализировать документ": "Пришли файл в формате docx или pdf для анализа",
     "Задать вопрос": "Задай свой вопрос",
-    "Резюмировать": "Пришли файл или текст, который надо резюмировать",
-    "Письмо": "Уточни, какое должно быть письмо"
+    "Резюмировать": "Пришли файл (pdf или docx) или текст, который надо резюмировать",
+    "Письмо": "Уточни, какое должно быть письмо",
+    "Презентация": "Пришли файл в формате pdf для анализа"
 }
 
 states = {
@@ -19,7 +20,8 @@ states = {
     "Анализировать таблицу": "llm_analyse_table",
     "Задать вопрос": "llm_answer_question",
     "Резюмировать": "llm_summarize",
-    "Письмо": "llm_letter"
+    "Письмо": "llm_letter",
+    "Презентация": "llm_analyse_presentation"
 }
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -68,8 +70,6 @@ async def llm_base_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["menu"] = "llm_base_menu"
     if request in states:
         context.user_data["state"] = states[request]
-    else:
-        context.user_data["state"] = "default"
 
 async def llm_table_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menus = context.user_data.get("menus", [])
@@ -106,7 +106,7 @@ async def project_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         menus.append("project_menu")
     context.user_data["menus"] = menus
 
-    keyboard = [["Задать вопрос", "Резюмировать", "Письмо", "Таблица", "Документ", "Назад"]]
+    keyboard = [["Задать вопрос", "Резюмировать", "Письмо", "Таблица", "Документ", "Презентация", "Назад"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text("Меню проекта", reply_markup=reply_markup)
 

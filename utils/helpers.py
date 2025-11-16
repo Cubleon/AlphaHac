@@ -1,10 +1,13 @@
+import io
+
 from docx import Document
 from PyPDF2 import PdfReader
 import pandas as pd
 import comtypes.client
 
-def docx_to_text(path: str) -> str:
-    doc = Document(path)
+
+def docx_to_text(bytes: io.BytesIO) -> str:
+    doc = Document(bytes)
     parts = [p.text for p in doc.paragraphs if p.text]
     for table in doc.tables:
         for row in table.rows:
@@ -16,8 +19,8 @@ def docx_to_text(path: str) -> str:
     return "\n".join(parts).strip()
 
 
-def pdf_to_text(path: str) -> str:
-    reader = PdfReader(path)
+def pdf_to_text(bytes: io.BytesIO) -> str:
+    reader = PdfReader(bytes)
     parts = []
     for page in reader.pages:
         text = page.extract_text()
@@ -25,15 +28,7 @@ def pdf_to_text(path: str) -> str:
             parts.append(text)
     return "\n".join(parts).strip()
 
-def excel_to_text(path: str) -> str:
-    table = pd.read_excel(path)
+
+def excel_to_text(bytes: io.BytesIO) -> str:
+    table = pd.read_excel(bytes)
     return table.to_string(index=False)
-
-
-def pptx_to_pdf(path: str) -> None:
-    powerpoint = comtypes.client.CreateObject("PowerPoint.Application")
-    powerpoint.Visible = 1
-    presentation = powerpoint.Presentations.Open(path)
-    presentation.SaveAs(path.replace(".pptx", ".pdf"), 32)
-    presentation.Close()
-    powerpoint.Quit()

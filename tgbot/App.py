@@ -7,7 +7,7 @@ from callbacks.user_input_callback import main_callback
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", main_menu))
-    app.add_handler(MessageHandler(filters.TEXT, main_callback))
+    app.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL, main_callback))
     app.run_polling()
 
 

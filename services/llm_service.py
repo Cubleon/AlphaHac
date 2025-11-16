@@ -3,12 +3,13 @@ from typing import Iterator, Optional, List, Dict, Any
 import lmstudio as lms
 from markdown_pdf import MarkdownPdf, Section
 import io
-from utils.helpers import pptx_to_pdf
+from utils.helpers import *
 import fitz
 
 from PIL import Image
 
 import pandas as pd
+
 
 class LMStudioClient:
     """
@@ -19,7 +20,8 @@ class LMStudioClient:
       - respond_image_to_text: send an image + prompt (returns final full response)
     """
 
-    def __init__(self, chat_from_history: lms.Chat.from_history, model_id: str = "qwen/qwen3-vl-8b", system_prompt: str = None):
+    def __init__(self, chat_from_history: lms.Chat.from_history, model_id: str = "qwen/qwen3-vl-8b",
+                 system_prompt: str = None):
         # lazy create model handle on first use
         self.model_id = model_id
         self._model = lms.llm(model_id)
@@ -29,7 +31,7 @@ class LMStudioClient:
             self._chat = lms.Chat()
         self.default_config = {
             "temperature": 0.0,
-            "maxTokens": 1024
+            "maxTokens": 64
         }
 
     def get_chat(self):
@@ -121,8 +123,42 @@ class LMStudioClient:
         buf.seek(0)  # rewind so the caller can read from the start
         return buf
 
-    def respond_pdf_to_text(self, prompt: str, path_to_pdf: str, config: Optional[Dict[str, Any]] = None) -> str:
-        doc = fitz.open(path_to_pdf)
+    def respond_pdf_document_to_text(self, prompt: str, bytes: io.BytesIO,
+                                         config: Optional[Dict[str, Any]] = None) -> str:
+        self._chat.add_user_message(prompt)
+        self._chat.add_user_message(pdf_to_text(bytes))
+        cfg = dict(self.default_config)
+        if config:
+            cfg.update(config)
+        result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append).content
+
+        return result
+
+    def respond_docx_document_to_text(self, prompt: str, bytes: io.BytesIO,
+                                         config: Optional[Dict[str, Any]] = None) -> str:
+        self._chat.add_user_message(prompt)
+        self._chat.add_user_message(docx_to_text(bytes))
+        cfg = dict(self.default_config)
+        if config:
+            cfg.update(config)
+        result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append).content
+
+        return result
+
+    def respond_xlsx_table_to_text(self, prompt: str, bytes: io.BytesIO,
+                                         config: Optional[Dict[str, Any]] = None) -> str:
+        self._chat.add_user_message(prompt)
+        self._chat.add_user_message(excel_to_text(bytes))
+        cfg = dict(self.default_config)
+        if config:
+            cfg.update(config)
+        result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append).content
+
+        return result
+
+    def respond_pdf_presentation_to_text(self, prompt: str, bytes: io.BytesIO,
+                                         config: Optional[Dict[str, Any]] = None) -> str:
+        doc = fitz.open(stream=bytes)
         zoom = 0.5
         mat = fitz.Matrix(zoom, zoom)
 
@@ -146,8 +182,3 @@ class LMStudioClient:
         result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append).content
 
         return result
-
-    def respond_pptx_to_text(self, prompt: str, path_to_pptx: str, config: Optional[Dict[str, Any]] = None) -> str:
-        path_to_pdf = path_to_pptx.replace(".pptx", ".pdf")
-        pptx_to_pdf(path_to_pptx)
-        return self.respond_pdf_to_text(prompt, path_to_pdf, config)

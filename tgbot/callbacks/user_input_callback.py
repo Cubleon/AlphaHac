@@ -23,10 +23,11 @@ handlers = {
     "Письмо": llm_base_menu,
     "Таблица": llm_table_menu,
     "Сгенерировать таблицу": llm_base_menu,
-    "Анализировать таблицу": None,
+    "Анализировать таблицу": llm_base_menu,
     "Сгенерировать документ": llm_base_menu,
-    "Анализировать документ": None,
-    "Документ": llm_document_menu
+    "Анализировать документ": llm_base_menu,
+    "Документ": llm_document_menu,
+    "Презентация": llm_base_menu
 }
 
 actions = {
@@ -40,7 +41,10 @@ actions = {
         "llm_summarize": llm_summarize,
         "llm_letter": llm_letter,
         "llm_generate_table": llm_generate_table,
-        "llm_generate_document": llm_generate_document
+        "llm_analyse_table": llm_analyse_table,
+        "llm_generate_document": llm_generate_document,
+        "llm_analyse_document": llm_analyse_document,
+        "llm_analyse_presentation": llm_analyse_presentation
     },
     "notifications_menu": {
         "waiting_name": ask_notification_time,
@@ -53,13 +57,13 @@ actions = {
 
 
 async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text not in handlers:
-        await actions[context.user_data["menu"]][context.user_data["state"]](update, context)
-        # try:
-        #
-        # except:
-        #     await update.message.reply_text("Неверный ввод")
-    else:
+    if update.message.text and update.message.text in handlers:
         await handlers[update.message.text](update, context)
+    else:
+        try:
+            await actions[context.user_data["menu"]][context.user_data["state"]](update, context)
+        except:
+            await update.message.reply_text("Неверный ввод")
+
 
 
