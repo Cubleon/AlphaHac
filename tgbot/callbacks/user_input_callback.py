@@ -1,8 +1,33 @@
 from telegram import Update
 from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, ContextTypes, filters
-from tgbot.callbacks.project_callbacks import name_project_to_create, name_project_to_delete, choose_project
 from tgbot.callbacks.notifications_callbacks import *
-from tgbot.callbacks.llm_callbacks import llm_text_to_text
+from tgbot.callbacks.llm_callbacks import *
+from tgbot.callbacks.back_callback import back
+from tgbot.callbacks.help_callback import help
+from tgbot.callbacks.project_callbacks import *
+
+from tgbot.callbacks.menus import *
+
+handlers = {
+    "Мои проекты": manage_projects_menu,
+    "Создать новый проект": create_project,
+    "Уведомления": notifications_menu,
+    "Добавить уведомление": ask_notification_name,
+    "Удалить уведомление": show_notifications_to_delete,
+    "Показать все уведомления": show_all_notifications,
+    "Удалить проект": delete_project,
+    "Назад": back,
+    "О боте": help,
+    "Задать вопрос": llm_base_menu,
+    "Резюмировать": llm_base_menu,
+    "Письмо": llm_base_menu,
+    "Таблица": llm_table_menu,
+    "Сгенерировать таблицу": llm_base_menu,
+    "Анализировать таблицу": None,
+    "Сгенерировать документ": llm_base_menu,
+    "Анализировать документ": None,
+    "Документ": llm_document_menu
+}
 
 actions = {
     "manage_projects_menu": {
@@ -10,8 +35,12 @@ actions = {
         "creating_project": name_project_to_create,
         "deleting_project": name_project_to_delete
     },
-    "llm_menu": {
-        "asking_llm": llm_text_to_text
+    "llm_base_menu": {
+        "llm_answer_question": llm_answer_question,
+        "llm_summarize": llm_summarize,
+        "llm_letter": llm_letter,
+        "llm_generate_table": llm_generate_table,
+        "llm_generate_document": llm_generate_document
     },
     "notifications_menu": {
         "waiting_name": ask_notification_time,
@@ -22,9 +51,15 @@ actions = {
 }
 
 
+
 async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await actions[context.user_data["menu"]][context.user_data["state"]](update, context)
-    # try:
-    #
-    # except:
-    #     await update.message.reply_text("Неверный ввод")
+    if update.message.text not in handlers:
+        await actions[context.user_data["menu"]][context.user_data["state"]](update, context)
+        # try:
+        #
+        # except:
+        #     await update.message.reply_text("Неверный ввод")
+    else:
+        await handlers[update.message.text](update, context)
+
+

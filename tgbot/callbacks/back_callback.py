@@ -6,7 +6,9 @@ from tgbot.callbacks.menus import *
 to = {
     "main_menu": main_menu,
     "manage_projects_menu": manage_projects_menu,
-    "llm_menu": llm_menu,
+    "llm_base_menu": llm_base_menu,
+    "llm_document_menu": llm_document_menu,
+    "llm_table_menu": llm_table_menu,
     "project_menu": project_menu,
     "notifications_menu": notifications_menu
 }

@@ -19,17 +19,17 @@ class LMStudioClient:
       - respond_image_to_text: send an image + prompt (returns final full response)
     """
 
-    def __init__(self, chat_history: lms.Chat.from_history, model_id: str = "qwen/qwen3-vl-8b", system_prompt: str = None):
+    def __init__(self, chat_from_history: lms.Chat.from_history, model_id: str = "qwen/qwen3-vl-8b", system_prompt: str = None):
         # lazy create model handle on first use
         self.model_id = model_id
         self._model = lms.llm(model_id)
-        if chat_history:
-            self._chat = chat_history
+        if chat_from_history:
+            self._chat = chat_from_history
         else:
             self._chat = lms.Chat()
         self.default_config = {
             "temperature": 0.0,
-            "maxTokens": 128
+            "maxTokens": 1024
         }
 
     def get_chat(self):
@@ -94,7 +94,6 @@ class LMStudioClient:
 
         pdf = MarkdownPdf(toc_level=2)
         pdf.add_section(Section(result))
-        pdf.save("output.pdf")
         out_bytes = io.BytesIO()
         pdf.save_bytes(out_bytes)
 
