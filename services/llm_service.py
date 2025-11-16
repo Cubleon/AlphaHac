@@ -3,7 +3,7 @@ from typing import Iterator, Optional, List, Dict, Any
 import lmstudio as lms
 from markdown_pdf import MarkdownPdf, Section
 import io
-
+from utils.helpers import pptx_to_pdf
 import fitz
 
 from PIL import Image
@@ -146,3 +146,8 @@ class LMStudioClient:
         result = self._model.respond(self._chat, config=cfg, on_message=self._chat.append).content
 
         return result
+
+    def respond_pptx_to_text(self, prompt: str, path_to_pptx: str, config: Optional[Dict[str, Any]] = None) -> str:
+        path_to_pdf = path_to_pptx.replace(".pptx", ".pdf")
+        pptx_to_pdf(path_to_pptx)
+        self.respond_pdf_to_text(prompt, path_to_pdf, config)
