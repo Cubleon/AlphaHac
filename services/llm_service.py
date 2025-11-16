@@ -150,4 +150,4 @@ class LMStudioClient:
     def respond_pptx_to_text(self, prompt: str, path_to_pptx: str, config: Optional[Dict[str, Any]] = None) -> str:
         path_to_pdf = path_to_pptx.replace(".pptx", ".pdf")
         pptx_to_pdf(path_to_pptx)
-        self.respond_pdf_to_text(prompt, path_to_pdf, config)
+        return self.respond_pdf_to_text(prompt, path_to_pdf, config)
