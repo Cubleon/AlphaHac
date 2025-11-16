@@ -1,11 +1,16 @@
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from config import TELEGRAM_TOKEN
-from callbacks.menus import *
-from callbacks.notifications_callbacks import ask_notification_name, show_notifications_to_delete, show_all_notifications
-from callbacks.project_callbacks import create_project, delete_project
-from callbacks.user_input_callback import main_callback
-from callbacks.back_callback import back
-from callbacks.help_callback import help
+from config import BOT_TOKEN
+from tgbot.callbacks.menus import *
+from tgbot.callbacks.notifications_callbacks import ask_notification_name, show_notifications_to_delete, show_all_notifications
+from tgbot.callbacks.project_callbacks import create_project, delete_project
+from tgbot.callbacks.user_input_callback import main_callback
+from tgbot.callbacks.back_callback import back
+from tgbot.callbacks.help_callback import help
+
+from services.db_service import db
+from tgbot.scheduler import restore_scheduled_notifications
+from config import BOT_TOKEN
+import asyncio
 
 handlers = {
     "Мои проекты": manage_projects_menu,
@@ -24,14 +29,31 @@ handlers = {
     "Документ": llm_menu
 }
 
+async def on_startup(app):
+    # инициализируем пул и создаём таблицы
+    await db.init()
+    # восстановим задачи уведомлений из БД
+    await restore_scheduled_notifications(app)
+
+async def on_shutdown(app):
+    await db.close()
+
 def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(on_startup)     # запускается после инициализации
+        .post_stop(on_shutdown)    # запускается при остановке
+        .build()
+    )
+
     app.add_handler(CommandHandler("start", main_menu))
 
     for msg in handlers:
         app.add_handler(MessageHandler(filters.TEXT & filters.Regex(msg), handlers[msg]))
 
     app.add_handler(MessageHandler(filters.TEXT, main_callback))
+
     app.run_polling()
 
 if __name__ == "__main__":

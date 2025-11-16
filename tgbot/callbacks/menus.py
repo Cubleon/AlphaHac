@@ -1,6 +1,7 @@
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.ext import CallbackContext
+from services.db_service import db
 
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -14,17 +15,30 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def manage_projects_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = await db.ensure_user({
+        "id": user.id,
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "language_code": user.language_code
+    })
+
+    projects = await db.list_projects(user_id, limit=50)
+
+    project_names = [p["name"] for p in projects]
+
     menus = context.user_data.get("menus", [])
     if (menus and menus[-1] != "manage_projects_menu") or not menus:
         menus.append("manage_projects_menu")
     context.user_data["menus"] = menus
 
-    if context.user_data["menu"] != "manage_projects_menu":
-        context.user_data["prev_menu"] = context.user_data["menu"]
+    if context.user_data.get("menu") != "manage_projects_menu":
+        context.user_data["prev_menu"] = context.user_data.get("menu")
 
-    projects = context.user_data.get("projects", [])
-    keyboard = [[p] for p in projects] + [["Создать новый проект", "Удалить проект"]] + [["Назад"]]
+    context.user_data["projects"] = [{"id": str(p["id"]), "name": p["name"]} for p in projects]
 
+    keyboard = [[p] for p in project_names] + [["Создать новый проект", "Удалить проект"]] + [["Назад"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text("Выбери действие", reply_markup=reply_markup)
 

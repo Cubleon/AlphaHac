@@ -12,10 +12,9 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - db_data:/var/lib/postgresql/data/pgdata
-      # опционально: скрипты инициализации (создать папку docker/initdb/*.sql)
       - ./docker/initdb:/docker-entrypoint-initdb.d:ro
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -31,15 +30,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - ./.env
     environment:
-      # DATABASE_URL в формате postgres://user:pass@host:port/dbname
-      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT:-5432}/${POSTGRES_DB}}
-      BOT_TOKEN: ${BOT_TOKEN}
       PYTHONUNBUFFERED: "1"
+      DB_HOST: db
+      DB_PORT: 5432
     volumes:
-      - ./:/app       # монтируем исходники для разработки
+      - ./:/app
     working_dir: /app
-    command: bash -lc "pip install -r requirements.txt && python -m handlers"
+    # теперь entrypoint будет ждать БД и стартовать бот
+    entrypoint: ["/app/entrypoint.sh"]
     restart: on-failure
     networks:
       - appnet

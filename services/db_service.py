@@ -143,6 +143,12 @@ class PostgresDatabase:
         async with self._pool.acquire() as conn:
             return await conn.fetchrow("SELECT * FROM users WHERE telegram_id = $1", telegram_id)
 
+    async def get_user_by_id(self, user_id: int) -> Optional[asyncpg.Record]:
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            return await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
+
+
     async def ensure_user(self, tg_user: Dict[str, Any]) -> int:
         found = await self.get_user_by_telegram(tg_user["id"])
         if found:
@@ -155,8 +161,9 @@ class PostgresDatabase:
             language_code=tg_user.get("language_code")
         )
 
+    @staticmethod
     def _row_to_dict(row):
-    """Преобразует asyncpg.Record -> dict, конвертирует UUID/datetime в строки."""
+        """Преобразует asyncpg.Record -> dict, конвертирует UUID/datetime в строки."""
         if row is None:
             return None
         d = dict(row)
@@ -177,16 +184,16 @@ class PostgresDatabase:
             proj_row = await conn.fetchrow("SELECT * FROM projects WHERE id = $1", uuid.UUID(project_id))
             if not proj_row:
                 return None
-            project = _row_to_dict(proj_row)
+            project = self._row_to_dict(proj_row)
             # conversations
             convs = await conn.fetch("SELECT * FROM conversations WHERE project_id = $1 ORDER BY last_activity DESC LIMIT $2", uuid.UUID(project_id), conv_limit)
             project['conversations'] = []
             for c in convs:
-                cdict = _row_to_dict(c)
+                cdict = self._row_to_dict(c)
                 # messages (latest conv_message_limit)
                 msgs = await conn.fetch("SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT $2", uuid.UUID(cdict['id']), conv_message_limit)
                 # return chronological order
-                msgs = list(reversed([_row_to_dict(m) for m in msgs]))
+                msgs = list(reversed([self._row_to_dict(m) for m in msgs]))
                 cdict['messages'] = msgs
                 project['conversations'].append(cdict)
             return project
@@ -207,12 +214,12 @@ class PostgresDatabase:
             user_row = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
             if not user_row:
                 return None
-            user = _row_to_dict(user_row)
+            user = self._row_to_dict(user_row)
 
             # notifications (опционально)
             if include_notifications:
                 notifs = await conn.fetch("SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2", user_id, notif_limit)
-                user['notifications'] = [_row_to_dict(n) for n in notifs]
+                user['notifications'] = [self._row_to_dict(n) for n in notifs]
             else:
                 user['notifications'] = []
 
@@ -220,14 +227,14 @@ class PostgresDatabase:
             projects = await conn.fetch("SELECT * FROM projects WHERE user_id = $1 ORDER BY last_activity DESC LIMIT $2", user_id, project_limit)
             user['projects'] = []
             for p in projects:
-                p_dict = _row_to_dict(p)
+                p_dict = self._row_to_dict(p)
                 # conversations in project
                 convs = await conn.fetch("SELECT * FROM conversations WHERE project_id = $1 ORDER BY last_activity DESC LIMIT $2", uuid.UUID(p_dict['id']), conv_limit)
                 p_dict['conversations'] = []
                 for c in convs:
-                    c_dict = _row_to_dict(c)
+                    c_dict = self._row_to_dict(c)
                     msgs = await conn.fetch("SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT $2", uuid.UUID(c_dict['id']), conv_message_limit)
-                    c_dict['messages'] = list(reversed([_row_to_dict(m) for m in msgs]))
+                    c_dict['messages'] = list(reversed([self._row_to_dict(m) for m in msgs]))
                     p_dict['conversations'].append(c_dict)
                 user['projects'].append(p_dict)
 
@@ -313,6 +320,57 @@ class PostgresDatabase:
         async with self._pool.acquire() as conn:
             await conn.execute("UPDATE conversations SET last_activity = $1 WHERE id = $2", _now(), uuid.UUID(conv_id))
 
+    async def get_or_create_conversation(self, user_id: int, project_id: str | None):
+        async with self._pool.acquire() as con:
+            if project_id is None:
+                # ищем беседу БЕЗ проекта
+                existing = await con.fetchrow(
+                    """
+                    SELECT id FROM conversations
+                    WHERE user_id = $1 AND project_id IS NULL
+                    ORDER BY last_activity DESC
+                    LIMIT 1
+                    """,
+                    user_id
+                )
+                if existing:
+                    return str(existing["id"])
+
+                created = await con.fetchrow(
+                    """
+                    INSERT INTO conversations (id, user_id, project_id, title, created_at, last_activity)
+                    VALUES ($1, $2, NULL, $3, NOW(), NOW())
+                    RETURNING id
+                    """,
+                    uuid.uuid4(), user_id, "Chat"
+                )
+                return str(created["id"])
+
+            else:
+                # ищем беседу ВНУТРИ проекта
+                existing = await con.fetchrow(
+                    """
+                    SELECT id FROM conversations
+                    WHERE user_id = $1 AND project_id = $2
+                    ORDER BY last_activity DESC
+                    LIMIT 1
+                    """,
+                    user_id, uuid.UUID(project_id)
+                )
+                if existing:
+                    return str(existing["id"])
+
+                created = await con.fetchrow(
+                    """
+                    INSERT INTO conversations (id, user_id, project_id, title, created_at, last_activity)
+                    VALUES ($1, $2, $3, $4, NOW(), NOW())
+                    RETURNING id
+                    """,
+                    uuid.uuid4(), user_id, uuid.UUID(project_id), "Project Chat"
+                )
+                return str(created["id"])
+
+
     # ---------------- messages ----------------
     async def save_message(self, conversation_id: str, role: str, content: str,
                            token_count: int = 0, meta: Optional[Dict[str, Any]] = None) -> str:
@@ -352,6 +410,43 @@ class PostgresDatabase:
             selected.append({"role": m['role'], "content": m['content'], "meta": meta})
             total += tokens
         return selected
+
+    async def add_message(self, conversation_id: str, role: str, content: str,
+                          token_count: int = 0, meta: Optional[Dict[str, Any]] = None) -> str:
+        assert self._pool is not None
+        msg_id = uuid.uuid4()
+        now = _now()
+        meta_json = meta if meta is not None else {}
+
+        async with self._pool.acquire() as con:
+            await con.execute("""
+                INSERT INTO messages (id, conversation_id, role, content, created_at, token_count, meta)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """, msg_id, uuid.UUID(conversation_id), role, content, now,
+                              token_count, json.dumps(meta_json))
+
+            await con.execute("""
+                UPDATE conversations SET last_activity = $1 WHERE id = $2
+            """, now, uuid.UUID(conversation_id))
+
+        return str(msg_id)
+
+    async def get_messages(self, conversation_id: str, limit: int = 20):
+        query = """
+            SELECT role, content
+            FROM messages
+            WHERE conversation_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2
+        """
+
+        async with self._pool.acquire() as con:
+            rows = await con.fetch(query, conversation_id, limit)
+
+        return [
+            {"role": row["role"], "content": row["content"]}
+            for row in reversed(rows)
+        ]
 
     # ---------------- notifications ----------------
     async def create_notification(self, user_id: int, title: str, body: str,

@@ -24,6 +24,12 @@ actions = {
 
 async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        await actions[context.user_data["menu"]][context.user_data["state"]](update, context)
-    except:
-        await update.message.reply_text("Неверный ввод")
+        menu = context.user_data.get("menu")
+        state = context.user_data.get("state")
+        handler = actions.get(menu, {}).get(state)
+        if handler:
+            await handler(update, context)
+        else:
+            await update.message.reply_text("Неверный ввод")
+    except Exception as exc:
+        await update.message.reply_text("Неверный ввод / ошибка: " + str(exc))
