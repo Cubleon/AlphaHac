@@ -4,6 +4,7 @@ from tgbot.callbacks.notifications_callbacks import *
 from tgbot.callbacks.llm_callbacks import *
 from tgbot.callbacks.back_callback import back
 from tgbot.callbacks.help_callback import help
+from tgbot.callbacks.begin_callback import begin
 from tgbot.callbacks.project_callbacks import *
 
 from tgbot.callbacks.menus import *
@@ -27,7 +28,8 @@ handlers = {
     "Сгенерировать документ": llm_base_menu,
     "Анализировать документ": llm_base_menu,
     "Документ": llm_document_menu,
-    "Презентация": llm_base_menu
+    "Презентация": llm_base_menu,
+    "В начало": begin
 }
 
 actions = {
