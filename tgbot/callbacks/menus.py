@@ -1,6 +1,6 @@
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes
-from telegram.ext import CallbackContext
+
 
 answers = {
     "Сгенерировать документ": "Уточни, что должно быть в документе",
@@ -25,6 +25,12 @@ states = {
 }
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db = context.application.bot_data["db"]
+    db.create_user(update.effective_user.id, update.effective_user.name)
+
+    from tgbot.callbacks.notifications_callbacks import run_notifications
+    run_notifications(update, context)
+
     context.user_data.setdefault("menus", ["main_menu"])
     keyboard = [["Мои проекты", "О боте", "Задать вопрос", "Уведомления"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)

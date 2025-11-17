@@ -2,32 +2,34 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, ContextTypes, filters
 from tgbot.callbacks.menus import notifications_menu
 from datetime import time
+from datetime import datetime
 from zoneinfo import ZoneInfo
+
 
 TZ = ZoneInfo("Europe/Moscow")
 
 
 async def show_all_notifications(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    notifications_list = []
-    for notif in context.user_data.get("notifications", []):
-        # notif.name и notif.next_t (datetime) → строка вида "Будильник: 2025-11-15 09:00"
-        notifications_list.append(f"{notif.name}: {notif.next_t.strftime('%Y-%m-%d %H:%M')}")
+    db = context.application.bot_data["db"]
+    text = ""
+    for notif in db.list_notifications(update.effective_user.id):
+        h, m = map(int, notif[5].split(":"))
+        if time(datetime.now(tz=TZ).hour, datetime.now(tz=TZ).minute, tzinfo=TZ) > time(h, m, tzinfo=TZ):
+            db.update_notification_id(notif[0])
+        if not notif[6]:
+            text += f"Уведомление '{notif[2]}' установлено на {notif[5]}:\n{notif[3]}\n"
 
-    if notifications_list:
-        text = "Мои уведомления:\n" + "\n".join(notifications_list)
+    if not text:
+        await update.message.reply_text("У вас пока нет активных уведомлений")
     else:
-        text = "У вас пока нет уведомлений."
+        await update.message.reply_text(text)
 
-    await update.message.reply_text(text)
-
-# Шаг 1: задаём имя уведомления
 async def ask_notification_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Введите имя уведомления:")
     context.user_data["state"] = "waiting_name"
     context.user_data["menu"] = "notifications_menu"
 
 
-# Шаг 2: задаём время
 async def ask_notification_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text
     context.user_data["notification_name"] = name
@@ -36,7 +38,6 @@ async def ask_notification_time(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["menu"] = "notifications_menu"
 
 
-# Шаг 3: задаём текст уведомления и создаём задачу
 async def ask_notification_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     h, m = map(int, update.message.text.split(":"))
     context.user_data["notification_time"] = (h, m)
@@ -46,10 +47,12 @@ async def ask_notification_text(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def save_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Берём данные из user_data
     name = context.user_data.get("notification_name")
     time_tuple = context.user_data.get("notification_time")
     message = context.user_data.get("notification_text") or update.message.text  # на случай если текст ещё не сохранён
+
+    db = context.application.bot_data["db"]
+    db.create_notification(update.effective_user.id, name, message, f"{time_tuple[0]:02d}:{time_tuple[1]:02d}")
 
     if not (name and time_tuple and message):
         await update.message.reply_text("Ошибка: не все данные уведомления заполнены.")
@@ -57,39 +60,28 @@ async def save_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     h, m = time_tuple
 
-    # создаём ежедневную задачу
-    job = context.application.job_queue.run_daily(
+    job = context.application.job_queue.run_once(
         send_notification,
-        time=time(h, m, tzinfo=TZ),
+        when=time(h, m, tzinfo=TZ),
         chat_id=update.effective_chat.id,
         data=message,
         name=name
     )
-
-    # сохраняем job в user_data
-    if "notifications" in context.user_data:
-        context.user_data["notifications"].append(job)
-    else:
-        context.user_data["notifications"] = [job]
+    context.user_data["notifications"].append(job)
 
     await update.message.reply_text(f"Уведомление '{name}' установлено на {h:02d}:{m:02d}:\n{message}")
-
-    # Сброс временных данных
-    context.user_data.pop("notification_name", None)
-    context.user_data.pop("notification_time", None)
-    context.user_data.pop("notification_text", None)
-    context.user_data["state"] = None
-    context.user_data["menu"] = "notifications_menu"
-
     await notifications_menu(update, context)
 
 
-# Шаг 3: задаём текст уведомления и создаём задачу
 async def show_notifications_to_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db = context.application.bot_data["db"]
     notifications_list = []
-    for notif in context.user_data.get("notifications", []):
-        # notif.name и notif.next_t (datetime) → строка вида "Будильник: 2025-11-15 09:00"
-        notifications_list.append(f"{notif.name}: {notif.next_t.strftime('%Y-%m-%d %H:%M')}")
+    for notif in db.list_notifications(update.effective_user.id):
+        h, m = map(int, notif[5].split(":"))
+        if time(datetime.now(tz=TZ).hour, datetime.now(tz=TZ).minute, tzinfo=TZ) > time(h, m, tzinfo=TZ):
+            db.update_notification_id(notif[0])
+        if not notif[6]:
+            notifications_list.append(f"{notif[2]}: {h:02d}:{m:02d}")
 
     context.user_data["menu"] = "notifications_menu"
     context.user_data["state"] = "notification_to_delete"
@@ -103,22 +95,44 @@ async def show_notifications_to_delete(update: Update, context: ContextTypes.DEF
 
 
 async def delete_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    name, time = update.message.text.split(": ", 1)
+    name, time = update.message.text.split(": ")
+
+    db = context.application.bot_data["db"]
+
     for num, notif in enumerate(context.user_data.get("notifications")):
-        if (name, time) == (notif.name, notif.next_t.strftime('%Y-%m-%d %H:%M')):
+        h, m = notif.next_t.hour, notif.next_t.minute
+        if (name, time) == (notif.name, f"{h:02d}:{m:02d}"):
             notif.schedule_removal()
-            del context.user_data.get("notifications")[num]
+            context.user_data.get("notifications").pop(num)
+            db.update_notification(name, time)
+
             text = f"Уведомление {name} удалено"
             await update.message.reply_text(text)
-            await notifications_menu(update, context)
             break
     else:
-        text = "Уведомление не найдено"
-        await update.message.reply_text(text)
-        await notifications_menu(update, context)
+        await update.message.reply_text("Уведомление не найдено")
 
+    await notifications_menu(update, context)
 
 async def send_notification(context: ContextTypes.DEFAULT_TYPE):
     chat_id = context.job.chat_id
     text = "Уведомление:\n" + context.job.data
     await context.bot.send_message(chat_id=chat_id, text=text)
+
+
+def run_notifications(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db = context.application.bot_data["db"]
+    context.user_data.setdefault("notifications", [])
+    for notif in db.list_notifications(update.effective_user.id):
+        h, m = map(int, notif[5].split(":"))
+        if time(datetime.now(tz=TZ).hour, datetime.now(tz=TZ).minute, tzinfo=TZ) > time(h, m, tzinfo=TZ):
+            db.update_notification_id(notif[0])
+        if not notif[6]:
+            job = context.application.job_queue.run_once(
+                send_notification,
+                when=time(h, m, tzinfo=TZ),
+                chat_id=update.effective_chat.id,
+                data=notif[3],
+                name=notif[2]
+            )
+            context.user_data["notifications"].append(job)
