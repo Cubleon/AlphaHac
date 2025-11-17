@@ -31,7 +31,7 @@ class LMStudioClient:
             self._chat = lms.Chat()
         self.default_config = {
             "temperature": 0.0,
-            "maxTokens": 64
+            "maxTokens": 512
         }
 
     def get_chat(self):

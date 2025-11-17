@@ -16,5 +16,8 @@ to = {
 
 async def back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menus = context.user_data.get("menus", [])
-    menus.pop()
-    await to[menus[-1]](update, context)
+    try:
+        menus.pop()
+        await to[menus[-1]](update, context)
+    except:
+        await update.message.reply_text("Ошибка")

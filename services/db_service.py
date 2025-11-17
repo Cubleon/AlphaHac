@@ -44,6 +44,12 @@ class Database:
                 end_time TEXT,
                 delivered BOOLEAN
             );
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER,
+                name TEXT NOT NULL,
+                chat_history TEXT
+            );
             """
         )
 
@@ -69,9 +75,36 @@ class Database:
 
         self._conn.commit()
 
+    def create_project(self, user_id: int, name: str, chat_history: str):
+        nid = str(uuid.uuid4())
+        self._conn.execute(
+            "INSERT INTO projects (id, user_id, name, chat_history) VALUES (?, ?, ?, ?)",
+            (nid, user_id, name, chat_history)
+        )
+
+        self._conn.commit()
+    def delete_project(self, user_id, name: str):
+        self._conn.execute(
+            "DELETE FROM projects WHERE user_id = ? AND name = ?", (user_id, name)
+        )
+
+        self._conn.commit()
+
+    def get_project_by_name(self, user_id, name: str):
+        cur = self._conn.execute(
+            "SELECT * FROM projects WHERE user_id = ? AND name = ?", (user_id, name)
+        )
+
+        return cur.fetchone()
+
     def list_notifications(self, user_id: int):
         cur = self._conn.execute(
             "SELECT * FROM notifications WHERE user_id = ?", (user_id,))
+        return cur.fetchall()
+
+    def list_projects(self, user_id: int):
+        cur = self._conn.execute(
+            "SELECT * FROM projects WHERE user_id = ?", (user_id,))
         return cur.fetchall()
 
     def update_notification_id(self, notification_id):

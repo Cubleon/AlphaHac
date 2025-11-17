@@ -1,4 +1,5 @@
 import io
+import json
 
 from telegram import Update, ReplyKeyboardMarkup, InputFile
 from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, ContextTypes, filters
@@ -10,9 +11,20 @@ import asyncio
 
 
 async def llm_answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.setdefault("history", None)
-    client = LMStudioClient(chat_from_history=context.user_data["history"])
-    sent = await update.message.reply_text("⏳ thinking...")
+    db = context.application.bot_data["db"]
+
+    cur_project_name = context.user_data.get("current_project", "")
+
+    if cur_project_name == "":
+        context.user_data.setdefault("history", None)
+        client = LMStudioClient(chat_from_history=context.user_data["history"])
+        sent = await update.message.reply_text("⏳ thinking...")
+
+    cur_project = db.get_project_by_name(update.effective_user.id, context.user_data["current_project"])
+    history = json.loads(cur_project[3])
+    print(history)
+
+
     last_edit_time = asyncio.get_event_loop().time()
     buffer = ""
 

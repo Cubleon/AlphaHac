@@ -1,7 +1,6 @@
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes
 
-
 answers = {
     "Сгенерировать документ": "Уточни, что должно быть в документе",
     "Сгенерировать таблицу": "Уточни, какая должна быть таблица",
@@ -23,6 +22,7 @@ states = {
     "Письмо": "llm_letter",
     "Презентация": "llm_analyse_presentation"
 }
+
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = context.application.bot_data["db"]
@@ -49,8 +49,9 @@ async def manage_projects_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     if context.user_data["menu"] != "manage_projects_menu":
         context.user_data["prev_menu"] = context.user_data["menu"]
 
-    projects = context.user_data.get("projects", [])
-    keyboard = [[p] for p in projects] + [["Создать новый проект", "Удалить проект"]] + [["Назад"]]
+    db = context.application.bot_data["db"]
+    projects = db.list_projects(update.effective_user.id)
+    keyboard = [[p[2]] for p in projects] + [["Создать новый проект", "Удалить проект"]] + [["Назад"]]
 
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text("Выбери действие", reply_markup=reply_markup)
@@ -77,6 +78,7 @@ async def llm_base_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if request in states:
         context.user_data["state"] = states[request]
 
+
 async def llm_table_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menus = context.user_data.get("menus", [])
     if (menus and menus[-1] != "llm_table_menu") or not menus:
@@ -90,6 +92,7 @@ async def llm_table_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["menu"] = "llm_table_menu"
     context.user_data["state"] = "default"
+
 
 async def llm_document_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menus = context.user_data.get("menus", [])
@@ -105,6 +108,7 @@ async def llm_document_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["menu"] = "llm_document_menu"
     context.user_data["state"] = "default"
+
 
 async def project_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menus = context.user_data.get("menus", [])
